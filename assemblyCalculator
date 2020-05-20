@@ -1,0 +1,486 @@
+include irvine32.inc
+
+.data
+open_name BYTE "input.txt",0
+output_name BYTE "output.txt",0
+BUFFER_SIZE = 500
+buffer BYTE BUFFER_SIZE DUP(?)
+fileHandle HANDLE ?
+sErrsErr_File BYTE "CANNOT OPEN FILE.",0
+count DWORD ?			;variant for LOOP Count using ECX
+offset_count DWORD ?	;Variant for OFFSET
+STORE_CX WORD 0			;variant for LOOP Count using CX
+temp_AL byte 0			;Variant for store AL temporarily
+LIMIT  		DB 00H		
+SIGN_DATA 	DB ?		;Stores +,-,*,/,^,%
+PLUS_DATA 	DW ?		;First numbers
+MINUS_DATA 	DW ?		;for each calculating procedures
+MULT_DATA 	DW ?		;are saved to these
+POWER_DATA DW ?		;Datas
+DIVQ_DATA 	DW ?		;second nubers are going to be stored at BX
+DIVD_DATA DW ?			;for example, 3+7= => plus_data=3, BX=7
+CALC_RESULT WORD BUFFER_SIZE DUP(?) ;calculated results are going to be added to this array
+addr_calc DWORD 0		;New variants
+temp_addr DWORD ?		;to store pointers temporarily
+
+.code
+PLUS_CALC PROC ;subroutine procedure for addition
+	push bx
+	mov ah, 02h
+	mov bh, 00h
+	mov dx, 0314h
+	ADD dh, LIMIT
+
+	pop bx
+	ADD bx, PLUS_DATA ;Do addition
+	JNO PLUS_1 ;If there's no overflow, go to PLUS_1
+	mov dl, 31h ;If there's overflow, we have to make OF=0
+	mov ah, 02h
+PLUS_1:
+	mov ax, bx
+	mov di, 10
+	mov ch, 00h
+PLUS_2:
+	XOR dx,dx
+	CWD
+	IDIV di
+	PUSH dx
+	inc ch
+	OR ax, ax
+	JNE PLUS_2
+PLUS_NEXT:
+	POP dx
+	ADD dl, 30h
+	mov ah, 02h
+	dec ch
+	JNE PLUS_NEXT	
+	inc LIMIT
+	call Crlf
+	mov temp_addr, esp 
+	mov esp, addr_calc
+	mov CALC_RESULT[esp], bx ;save calculated results to CALC_RESULT 
+	mov CALC_RESULT[esp+2], 0Ah ;/n
+	ADD esp,4 
+	mov addr_calc, esp
+	mov esp, temp_addr
+	ret
+PLUS_CALC ENDP
+
+MINUS_CALC PROC ;Minus subroutine
+	push bx
+	mov ah, 02h
+	mov bh, 00h
+	mov dx, 0314h
+	ADD dh, LIMIT
+
+	pop bx
+	SUB bx, MINUS_DATA
+
+	JNO MINUS_1
+	mov dl, 31h
+	mov ah, 02h
+
+MINUS_1:
+	mov ax, bx
+	mov di, 10
+	mov ch, 00h
+MINUS_2:
+	XOR dx,dx
+	CWD
+	IDIV di
+	PUSH dx
+	inc ch
+	OR ax, ax
+	JNE MINUS_2
+MINUS_NEXT:
+	POP dx
+	ADD dl, 30h
+	mov ah, 02h
+	dec ch
+	JNE MINUS_NEXT	
+	inc LIMIT
+	call Crlf
+	mov temp_addr, esp
+	mov esp, addr_calc
+	mov CALC_RESULT[esp], bx
+	mov CALC_RESULT[esp+2], 0Ah
+	ADD esp,4
+	mov addr_calc, esp
+	mov esp, temp_addr
+	ret
+MINUS_CALC ENDP
+
+MULT_CALC PROC  ;Multiplication
+	mov ax, bx  ;since multiplication uses AX, move BX to AX
+	push ax
+	mov ah, 00h
+	mov bh, 02h
+	mov dx, 0314h
+	ADD dh, LIMIT
+
+	pop ax
+	MUL MULT_DATA
+	JNO MULT_1
+	mov dl, 31h
+	mov bh, 02h
+MULT_1:
+	mov bx, ax  ;since AX implies result of multiplication, move AX to BX
+	mov di, 10
+	mov ch, 00h
+MULT_2:
+	XOR dx,dx
+	CWD
+	IDIV di
+	PUSH dx
+	inc ch
+	OR ax, ax
+	JNE MULT_2
+MULT_NEXT:
+	POP dx
+	ADD dl, 30h
+	mov ah, 02h
+	dec ch
+	JNE MULT_NEXT	
+	inc LIMIT
+	call Crlf
+	mov temp_addr, esp
+	mov esp, addr_calc
+	mov CALC_RESULT[esp], bx
+	mov CALC_RESULT[esp+2], 0Ah
+	ADD esp,4
+	mov addr_calc, esp
+	mov esp, temp_addr
+	ret
+MULT_CALC ENDP
+
+POWER_CALC PROC  ;Power operation
+	mov STORE_CX, cx
+	mov cx, bx
+	SUB cx,1 ;3**4 implies 3*3*3*3 but if loop counter=4, then it will return 3*3*3*3*3=> we have to subtract 1 from loop counter
+	mov ax, POWER_DATA ;using mul and Loop, we can do multiplication for many times.
+LPOWER:
+	push cx
+	MUL POWER_DATA
+	pop cx
+	loop LPOWER
+	mov cx, STORE_CX
+
+	push ax
+	mov ah, 00h
+	mov bh, 02h
+	mov dx, 0314h
+	ADD dh, LIMIT
+
+	pop ax
+	JNO POWER_1
+	mov dl, 31h
+	mov bh, 02h
+POWER_1:
+	mov bx, ax  ;SAME AS MULTIPLICATION
+	mov di, 10
+	mov ch, 00h
+POWER_2:
+	XOR dx,dx
+	CWD
+	IDIV di
+	PUSH dx
+	inc ch
+	OR ax, ax
+	JNE POWER_2
+POWER_NEXT:
+	POP dx
+	ADD dl, 30h
+	mov ah, 02h
+	dec ch
+	JNE POWER_NEXT	
+	inc LIMIT
+	call Crlf
+	mov temp_addr, esp
+	mov esp, addr_calc
+	mov CALC_RESULT[esp], bx
+	mov CALC_RESULT[esp+2], 0Ah
+	ADD esp,4
+	mov addr_calc, esp
+	mov esp, temp_addr
+	ret
+POWER_CALC ENDP
+
+DIVQ_CALC PROC ;Quotient dividing
+	mov ax, DIVQ_DATA ;DIV operation uses AX
+	push ax
+	mov ah, 00h
+	
+	mov dx, 0314h
+	ADD dh, LIMIT
+
+	pop ax
+	push dx
+	mov dx,0
+	DIV bx
+	mov bh, 02h
+	pop dx
+	JNO DIVQ_1
+	mov dl, 31h
+	mov bh, 02h
+DIVQ_1:
+	mov bx, ax
+	mov di, 10
+	mov ch, 00h
+DIVQ_2:
+	XOR dx,dx
+	CWD
+	IDIV di
+	PUSH dx
+	inc ch
+	OR ax, ax
+	JNE DIVQ_2
+DIVQ_NEXT:
+	POP dx
+	ADD dl, 30h
+	mov ah, 02h
+	dec ch
+	JNE DIVQ_NEXT	
+	inc LIMIT
+	call Crlf
+	mov temp_addr, esp
+	mov esp, addr_calc
+	mov CALC_RESULT[esp], bx
+	mov CALC_RESULT[esp+2], 0Ah
+	ADD esp,4
+	mov addr_calc, esp
+	mov esp, temp_addr
+	ret
+DIVQ_CALC ENDP
+
+DIVD_CALC PROC  ;modulus operation
+	mov ax, DIVD_DATA
+	push ax
+	mov ah, 00h
+	
+	mov dx, 0314h
+	ADD dh, LIMIT
+
+	pop ax
+	push dx
+	mov dx,0
+	DIV bx
+	mov bx, dx
+	pop dx
+	JNO DIVD_1
+	mov dl, 31h
+	mov bh, 02h
+DIVD_1:
+
+	mov di, 10
+	mov ch, 00h
+DIVD_2:
+	XOR dx,dx
+	CWD
+	IDIV di
+	PUSH dx
+	inc ch
+	OR ax, ax
+	JNE DIVD_2
+DIVD_NEXT:
+	POP dx
+	ADD dl, 30h
+	mov ah, 02h
+	dec ch
+	JNE DIVD_NEXT	
+	inc LIMIT
+	call Crlf
+	mov temp_addr, esp
+	mov esp, addr_calc
+	mov CALC_RESULT[esp], bx
+	mov CALC_RESULT[esp+2], 0Ah
+	ADD esp,4
+	mov addr_calc, esp
+	mov esp, temp_addr
+	ret
+DIVD_CALC ENDP
+
+MAIN PROC
+
+ 	mov edx, OFFSET open_name ;file to open-input.txt
+	call OpenInputFile ;open files
+	mov filehandle, eax
+	
+	cmp eax, INVALID_HANDLE_VALUE ;fails to open
+	jne file_open_ok ;if open file is successful, go to reading file process
+	mov edx, OFFSET sErr_File ;if fails to open file, print error message
+	call WriteString
+	jmp Quit  ;if fails ro open file, Quit.
+
+file_open_ok:
+	mov edx, OFFSET buffer
+	mov ecx, BUFFER_SIZE
+	call ReadFromFile  ;save data to buffer after reading the file
+
+
+	mov bx, 0
+	mov esi, -1 
+	mov ecx, EAX ;loop counter=number of bytes of input data
+	mov ebp, OFFSET buffer
+
+L1: ;∞¢ πËø≠¿« ø¯º“ √º≈©
+	mov count, ecx
+	inc esi
+	mov al, [ebp+esi] ;read buffer byte-by-byte and save data to AL
+	mov offset_count,ebp
+ 	cmp al,31h   ;judge whether al is number or not
+	jae INT_CONVERT ; if al >= 31h, convert AL to integer
+	jb OP_CHECK ;if not, it implies AL is character.
+
+L2::  
+	mov ecx, count
+	mov ebp, offset_count
+	loop L1
+	;Done->output process
+
+INT_CONVERT: ;IF AL is number, change data type to integer
+	cmp al, '=' ;since '='>=31h, make sure to detect '='.
+	je OP_CHECK
+	mov ah, 00h
+	SUB al, 30h ; sub 30h make ASCII to integer.
+	CBW		
+	XCHG ax, bx ; make integer 10=<a=<99
+	mov cx, 0Ah 
+	MUL CX  ;multiply 10
+	XCHG ax, bx ;put data into bx
+	ADD bx, ax  ;final result are saved in BX
+	jmp L2
+
+OP_CHECK: ;operator check
+	CMP al, 0dh ;/r, /n->ignore
+	jbe L2
+	CMP al, '=' ;it implies result of calculation
+	je OP_RESULT
+	CMP al, '+' 
+	je PLUS_OP
+	CMP al, '-'
+	je MINUS_OP
+	CMP al, '*'
+	je MULT_OP
+	jmp DIVQ_OP
+
+	
+PLUS_OP:
+	mov PLUS_DATA, BX  ;Save first number
+	mov SIGN_DATA, AL	;Save operator
+	mov bx,0 ;initialization for second number
+	jmp L2 ;go to loop to get second number
+
+MINUS_OP:
+	mov MINUS_DATA, BX
+	mov SIGN_DATA, AL
+	mov bx,0
+	jmp L2
+
+MULT_OP:  ;we have to make a distinction between * and **
+	inc esi
+	mov temp_AL, al 
+	mov al, [ebp+esi]
+	cmp al,'*' 
+	je POWER_OP ;if there exists * after another *-> power operation
+	dec esi ;if not, just do multiplication
+	mov al, temp_AL
+	mov MULT_DATA, BX
+	mov SIGN_DATA, AL
+	mov bx,0
+	jmp L2
+
+DIVQ_OP: ;distinction between quotient division and modulus operation
+	inc esi
+	mov temp_AL, al
+	mov al, [ebp+esi]
+	cmp al, '/' ;same as power op
+	je DIVD_OP
+	dec esi
+	mov al, temp_AL
+	mov DIVQ_DATA, BX
+	mov SIGN_DATA, AL
+	mov bx,0
+	jmp L2
+
+POWER_OP: 
+	mov al, temp_AL
+	mov POWER_DATA, BX
+	mov SIGN_DATA, '^' ;add ^
+	mov bx,0
+	jmp L2
+
+DIVD_OP:  ;mod 
+	mov al, temp_AL
+	mov DIVD_DATA, BX
+	mov SIGN_DATA, '%' ;add %
+	mov bx,0
+	jmp L2
+
+OP_RESULT:	;calls proper operation.		
+	cmp SIGN_DATA, '+'
+	je PLUS_RD
+	cmp SIGN_DATA, '-'
+	je MINUS_RD
+	cmp SIGN_DATA, '*'
+	je MULT_RD
+	cmp SIGN_DATA, '/'
+	je DIVQ_RD
+	cmp SIGN_DATA, '^'
+	je POWER_RD
+	jmp DIVD_RD
+PLUS_RD:
+	call PLUS_CALC  ;Calls procedure
+	push ax
+	mov ax, bx
+	call WriteInt ;and show result.
+	pop ax
+	mov bx,0
+	jmp L2
+MINUS_RD:
+	call MINUS_CALC
+	push ax
+	mov ax, bx
+	call WriteInt
+	mov bx,0
+	jmp L2
+MULT_RD:
+	call MULT_CALC
+	push ax
+	mov ax, bx
+	call WriteDec
+	pop ax
+	mov bx,0
+	jmp L2
+DIVQ_RD:
+	call DIVQ_CALC
+	push ax
+	mov ax, bx
+	call WriteDec
+	pop ax
+	mov bx,0
+	jmp L2
+POWER_RD:
+	call POWER_CALC
+	push ax
+	mov ax, bx
+	call WriteDec
+	pop ax
+	mov bx,0
+	jmp L2
+DIVD_RD:
+	call DIVD_CALC
+	push ax
+	mov ax, bx
+	call WriteDec
+	pop ax
+	mov bx,0
+	jmp L2
+
+	;here we need outout code.
+close_file:
+	mov eax, fileHandle
+	call CloseFile
+Quit:
+	exit
+MAIN ENDP
+END MAIN
