@@ -1,2 +1,2 @@
 # Intro_Comp_Systems
-Course assignments 
+Final project for CSI 2107 (Computer Systems) in Yonsei University.
